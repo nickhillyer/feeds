@@ -3,7 +3,7 @@ from datetime import timedelta
 from html import unescape
 from urllib.parse import urlencode
 
-from .common import RETENTION, fetch, get_json, instant, normalize, stamp, Tree
+from .common import RETENTION, fetch, instant, normalize, stamp, Tree
 
 TITLE = 'Methow Valley News'
 HOME = 'https://methowvalleynews.com'
@@ -42,8 +42,4 @@ def collect(feed, now):
         if number >= int(headers['X-WP-TotalPages']):
             break
         number += 1
-    for item in feed['items']:
-        if item['id'].startswith('news:') and item['id'] not in posts:
-            post = get_json(API + '/' + item['id'].split(':')[1] + '?_embed=1')
-            posts[item['id']] = post
     return [article(post) for post in posts.values()]

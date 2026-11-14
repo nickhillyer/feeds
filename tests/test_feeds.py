@@ -177,14 +177,17 @@ class NewsTests(unittest.TestCase):
         self.assertEqual(result['authors'], [{'name': 'Writer'}])
         self.assertNotIn('date_published', result)
 
-    def test_pagination_and_retained_refresh(self):
+    def test_news_only_requests_collection_pages(self):
         feed = history([item('news:3')])
         responses = [(json.dumps([self.post(1)]).encode(), {'Content-Type': 'application/json', 'X-WP-TotalPages': '2'}), (json.dumps([self.post(2)]).encode(), {'Content-Type': 'application/json', 'X-WP-TotalPages': '2'})]
-        with patch.object(news, 'fetch', side_effect=responses) as fetcher, patch.object(news, 'get_json', return_value=self.post(3)) as refresher:
+        with patch.object(news, 'fetch', side_effect=responses) as fetcher:
             result = news.collect(feed, NOW)
-        self.assertEqual({x['id'] for x in result}, {'news:1', 'news:2', 'news:3'})
+        self.assertEqual({x['id'] for x in result}, {'news:1', 'news:2'})
+        self.assertEqual(fetcher.call_count, 2)
+        self.assertTrue(all(call.args[0].startswith(news.API + '?') for call in fetcher.call_args_list))
+        retained = merge(feed['items'], result, NOW)
+        self.assertEqual(next(x for x in retained if x['id'] == 'news:3'), feed['items'][0])
         self.assertIn('page=2', fetcher.call_args.args[0])
-        self.assertIn('/3?', refresher.call_args.args[0])
 
     def test_initial_window_and_challenge(self):
         with patch.object(news, 'fetch', return_value=(b'[]', {'Content-Type': 'application/json', 'X-WP-TotalPages': '0'})) as fetcher:
