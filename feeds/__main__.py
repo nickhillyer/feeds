@@ -11,14 +11,20 @@ from .common import UTC, RETENTION, diagnostic, discover_icon, fetch, fingerprin
 ADAPTERS = (news, trails, bulletin)
 
 
-def load(adapter, base, bootstrap):
+def empty_feed(adapter, url):
+    return {'version': 'https://jsonfeed.org/version/1.1', 'title': adapter.TITLE, 'home_page_url': adapter.SOURCE, 'feed_url': url, 'items': [], '_feeds': {'initialized': False}}
+
+
+def load(adapter, base, bootstrap, reset=False):
     url = base.rstrip('/') + '/' + adapter.SLUG + '.json'
+    if reset:
+        return empty_feed(adapter, url)
     try:
         data, _ = fetch(url)
     except urllib.error.HTTPError as error:
         if error.code != 404 or not bootstrap:
             raise
-        return {'version': 'https://jsonfeed.org/version/1.1', 'title': adapter.TITLE, 'home_page_url': adapter.SOURCE, 'feed_url': url, 'items': [], '_feeds': {'initialized': False}}
+        return empty_feed(adapter, url)
     feed = json.loads(data)
     validate(feed)
     if feed.get('feed_url') != url:
@@ -56,10 +62,11 @@ def main():
     parser.add_argument('--base-url', default='https://nickhillyer.github.io/feeds')
     parser.add_argument('--output', type=Path, default=Path('output'))
     parser.add_argument('--bootstrap', action='store_true')
+    parser.add_argument('--reset', action='store_true')
     args = parser.parse_args()
     now = datetime.now(UTC)
     try:
-        histories = [(adapter, load(adapter, args.base_url, args.bootstrap)) for adapter in ADAPTERS]
+        histories = [(adapter, load(adapter, args.base_url, args.bootstrap, args.reset)) for adapter in ADAPTERS]
     except Exception as error:
         print('History recovery failed; deployment blocked: ' + diagnostic(error), file=sys.stderr)
         return 1

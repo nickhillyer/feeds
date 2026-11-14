@@ -223,6 +223,33 @@ class QuietHandler(SimpleHTTPRequestHandler):
 
 
 class CommandTests(unittest.TestCase):
+    def test_reset_bypasses_history_and_rebuilds_with_new_discovery_times(self):
+        seen = []
+
+        def collect(feed, now):
+            self.assertEqual(feed['items'], [])
+            self.assertEqual(feed['_feeds'], {'initialized': False})
+            seen.append(feed['title'])
+            return [{'id': 'new:1', 'content_text': 'Current content'}]
+
+        with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
+            stack.enter_context(patch('sys.argv', ['feeds', '--base-url', 'https://example.org', '--output', directory, '--reset']))
+            fetcher = stack.enter_context(patch('feeds.__main__.fetch', side_effect=AssertionError('Reset must not fetch history')))
+            stack.enter_context(patch('feeds.__main__.discover_icon', return_value='https://example.org/icon.png'))
+            for adapter in ADAPTERS:
+                (Path(directory) / (adapter.SLUG + '.json')).write_text(json.dumps(history([item('old:1', when=NOW - timedelta(days=2)), item('error:old')])))
+                stack.enter_context(patch.object(adapter, 'collect', side_effect=collect))
+            self.assertEqual(main(), 0)
+            fetcher.assert_not_called()
+            self.assertEqual(len(seen), 3)
+            for adapter in ADAPTERS:
+                result = json.loads((Path(directory) / (adapter.SLUG + '.json')).read_text())
+                validate(result)
+                self.assertEqual([entry['id'] for entry in result['items']], ['new:1'])
+                self.assertTrue(result['_feeds']['initialized'])
+                self.assertEqual(result['items'][0]['date_published'], result['_feeds']['last_successful_at'])
+
+
     def test_first_deployment_and_published_history_roundtrip(self):
         with tempfile.TemporaryDirectory() as directory:
             server = ThreadingHTTPServer(('127.0.0.1', 0), partial(QuietHandler, directory=directory))

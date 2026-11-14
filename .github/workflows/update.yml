@@ -10,6 +10,10 @@ on:
         type: boolean
         default: false
         description: Allow missing feeds on the initial deployment
+      reset:
+        type: boolean
+        default: false
+        description: Reset feeds and regenerate all items with new discovery times
       diagnostics:
         type: boolean
         default: false
@@ -42,9 +46,11 @@ jobs:
         env:
           BASE_URL: ${{ steps.pages.outputs.base_url }}
           BOOTSTRAP: ${{ inputs.bootstrap || false }}
+          RESET: ${{ inputs.reset || false }}
         run: |
           args=()
           if [ "$BOOTSTRAP" = "true" ]; then args+=(--bootstrap); fi
+          if [ "$RESET" = "true" ]; then args+=(--reset); fi
           python -m feeds --base-url "$BASE_URL" "${args[@]}"
       - uses: actions/upload-pages-artifact@v3
         with:
