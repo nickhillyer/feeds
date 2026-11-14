@@ -10,6 +10,10 @@ on:
         type: boolean
         default: false
         description: Allow missing feeds on the initial deployment
+      diagnostics:
+        type: boolean
+        default: false
+        description: Compare source responses and request headers
 permissions:
   contents: read
   pages: write
@@ -32,6 +36,7 @@ jobs:
       - uses: actions/configure-pages@v5
         id: pages
       - name: Diagnose source access
+        if: ${{ inputs.diagnostics == true }}
         run: python -m feeds.diagnose
       - name: Generate feeds
         env:
@@ -58,5 +63,9 @@ jobs:
               print('::warning::' + message)
           count = status['source_errors']
           summary = f'Feeds deployed successfully. Source errors recorded in feeds: {count}.\n'
+          for slug, count in status['feed_items'].items():
+              message = f'{slug}: {count} content items published'
+              print('::notice::' + message)
+              summary += f'\n- {message}'
           Path(os.environ['GITHUB_STEP_SUMMARY']).write_text(summary)
           PYTHON

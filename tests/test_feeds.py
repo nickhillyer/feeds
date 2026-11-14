@@ -9,11 +9,11 @@ from pathlib import Path
 import unittest
 import urllib.error
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from feeds import bulletin, news, trails
 from feeds.__main__ import ADAPTERS, generate, load, main
-from feeds.common import UTC, Tree, diagnostic, merge, stamp, validate
+from feeds.common import UTC, SourceChallenge, Tree, diagnostic, fetch, merge, stamp, validate
 
 NOW = datetime(2026, 11, 14, 23, tzinfo=UTC)
 
@@ -40,6 +40,47 @@ def topic_page(text='Original', reply='Reply'):
 def forum_page(topic_id, date, next_offset=None):
     next_link = f'<a rel="next" href="./viewforum.php?f=3&amp;start={next_offset}">Next</a>' if next_offset else ''
     return Tree(f'<li class="row"><dl><dt><a class="topictitle" href="./viewtopic.php?t={topic_id}&amp;sid=secret">Topic</a><div class="topic-poster">by Creator » {date}</div></dt></dl></li>{next_link}').root
+
+
+class RequestTests(unittest.TestCase):
+    def response(self, body=b'[]', kind='application/json', status=200):
+        response = MagicMock()
+        response.read.return_value = body
+        response.headers = {'Content-Type': kind}
+        response.status = status
+        response.__enter__.return_value = response
+        return response
+
+    def challenge(self):
+        return self.response(b'<meta http-equiv="refresh" content="0;/.well-known/sgcaptcha/?r=secret">', 'text/html', 202)
+
+    def test_challenge_then_recovery(self):
+        with patch('feeds.common.urllib.request.urlopen', side_effect=[self.challenge(), self.response()]) as request, patch('feeds.common.time.sleep') as sleep:
+            self.assertEqual(fetch('https://example.org'), (b'[]', 'application/json'))
+        self.assertEqual(request.call_count, 2)
+        sleep.assert_called_once_with(2)
+
+    def test_challenge_exhaustion_is_explicit(self):
+        with patch('feeds.common.urllib.request.urlopen', side_effect=[self.challenge() for _ in range(3)]) as request, patch('feeds.common.time.sleep') as sleep:
+            with self.assertRaisesRegex(SourceChallenge, 'SiteGround access challenge.*202'):
+                fetch('https://example.org')
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_disconnect_then_recovery(self):
+        with patch('feeds.common.urllib.request.urlopen', side_effect=[ConnectionResetError(), self.response()]), patch('feeds.common.time.sleep'):
+            self.assertEqual(fetch('https://example.org', with_headers=True), (b'[]', {'Content-Type': 'application/json'}))
+
+    def test_http_retry_and_terminal_not_found(self):
+        unavailable = urllib.error.HTTPError('https://example.org', 503, 'Unavailable', {}, None)
+        with patch('feeds.common.urllib.request.urlopen', side_effect=[unavailable, self.response()]), patch('feeds.common.time.sleep'):
+            self.assertEqual(fetch('https://example.org')[0], b'[]')
+        missing = urllib.error.HTTPError('https://example.org', 404, 'Missing', {}, None)
+        with patch('feeds.common.urllib.request.urlopen', side_effect=missing) as request, patch('feeds.common.time.sleep') as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                fetch('https://example.org')
+        self.assertEqual(request.call_count, 1)
+        sleep.assert_not_called()
 
 
 class LifecycleTests(unittest.TestCase):

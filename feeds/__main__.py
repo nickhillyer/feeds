@@ -78,7 +78,7 @@ def main():
     (args.output / '.nojekyll').touch()
     for failure in failures:
         print(failure, file=sys.stderr)
-    (args.output / 'status.json').write_text(json.dumps({'source_errors': len(failures), 'failures': failures}), encoding='utf-8')
+    (args.output / 'status.json').write_text(json.dumps({'source_errors': len(failures), 'failures': failures, 'feed_items': {slug: sum(not item['id'].startswith('error:') for item in feed['items']) for slug, feed in feeds}}), encoding='utf-8')
     return 0
 
 

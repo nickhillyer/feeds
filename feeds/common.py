@@ -12,6 +12,10 @@ UTC = timezone.utc
 RETENTION = timedelta(days=30)
 
 
+class SourceChallenge(ValueError):
+    pass
+
+
 def stamp(value):
     return value.astimezone(UTC).isoformat(timespec='seconds').replace('+00:00', 'Z')
 
@@ -29,16 +33,18 @@ def fetch(url, with_headers=False):
             request = urllib.request.Request(url, headers={'User-Agent': 'Feeds/1.0 (+https://github.com/nickhillyer/feeds)', 'Cache-Control': 'no-cache'})
             with urllib.request.urlopen(request, timeout=30) as response:
                 data = response.read()
+                if 'html' in response.headers.get('Content-Type', '') and b'/.well-known/sgcaptcha/' in data[:8192].lower():
+                    raise SourceChallenge(f'SiteGround access challenge (HTTP {response.status}); source content was not returned')
                 if with_headers:
                     return data, response.headers
                 return data, response.headers.get('Content-Type', '')
         except urllib.error.HTTPError as error:
             if error.code not in (429, 500, 502, 503, 504) or attempt == 2:
                 raise
-        except (urllib.error.URLError, TimeoutError):
+        except (urllib.error.URLError, TimeoutError, ConnectionError, SourceChallenge):
             if attempt == 2:
                 raise
-        time.sleep(2 ** attempt)
+        time.sleep(2 ** (attempt + 1))
 
 
 def get_json(url):
@@ -181,7 +187,7 @@ def merge(previous, incoming, now):
 def diagnostic(error):
     if isinstance(error, urllib.error.HTTPError):
         return f'HTTP {error.code}'
-    if isinstance(error, (TimeoutError, urllib.error.URLError)):
+    if isinstance(error, (TimeoutError, urllib.error.URLError, ConnectionError)):
         return 'Network request failed or timed out'
     message = str(error)
     message = re.sub(r'https?://\S+', '[source URL]', message)
