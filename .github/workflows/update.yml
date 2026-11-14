@@ -1,0 +1,48 @@
+name: Update feeds
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bootstrap:
+        type: boolean
+        default: false
+        description: Allow missing feeds on the initial deployment
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: feeds-pages
+  cancel-in-progress: false
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest discover -s tests -v
+      - uses: actions/configure-pages@v5
+        id: pages
+      - name: Generate feeds
+        env:
+          BASE_URL: ${{ steps.pages.outputs.base_url }}
+          BOOTSTRAP: ${{ inputs.bootstrap || false }}
+        run: |
+          args=()
+          if [ "$BOOTSTRAP" = "true" ]; then args+=(--bootstrap); fi
+          python -m feeds --base-url "$BASE_URL" "${args[@]}"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: output
+      - uses: actions/deploy-pages@v4
+      - name: Report source failures
+        run: |
+          python -c 'import json, sys; sys.exit(bool(json.load(open("output/status.json"))["source_errors"]))'
