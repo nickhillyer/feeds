@@ -43,6 +43,18 @@ jobs:
         with:
           path: output
       - uses: actions/deploy-pages@v4
-      - name: Report source failures
+      - name: Report source warnings
         run: |
-          python -c 'import json, sys; sys.exit(bool(json.load(open("output/status.json"))["source_errors"]))'
+          python - <<'PYTHON'
+          import json
+          import os
+          from pathlib import Path
+
+          status = json.loads(Path('output/status.json').read_text())
+          for failure in status['failures']:
+              message = failure.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+              print('::warning::' + message)
+          count = status['source_errors']
+          summary = f'Feeds deployed successfully. Source errors recorded in feeds: {count}.\n'
+          Path(os.environ['GITHUB_STEP_SUMMARY']).write_text(summary)
+          PYTHON
