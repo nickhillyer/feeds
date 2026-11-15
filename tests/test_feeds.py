@@ -220,10 +220,20 @@ class BulletinTests(unittest.TestCase):
         pages = [forum_page(2, 'Sat Nov 14, 2026 2:42 pm', 25), forum_page(1, 'Mon Nov 09, 2026 2:42 pm', 50), topic_page(), topic_page()]
         with patch.object(bulletin, 'page', side_effect=pages) as fetcher:
             result = bulletin.collect(history([item('topic:99')], initialized=False), NOW)
-        self.assertEqual({x['id'] for x in result}, {'topic:2', 'topic:99'})
-        self.assertEqual(fetcher.call_count, 4)
+        self.assertEqual({x['id'] for x in result}, {'topic:2'})
+        self.assertEqual(fetcher.call_count, 3)
         self.assertIn('sk=t', fetcher.call_args_list[0].args[0])
         self.assertIn('start=25', fetcher.call_args_list[1].args[0])
+
+
+    def test_existing_topics_are_not_refetched(self):
+        existing = item('topic:2', 'Original')
+        with patch.object(bulletin, 'page', return_value=forum_page(2, 'Sat Nov 14, 2026 2:42 pm')) as fetcher:
+            result = bulletin.collect(history([existing]), NOW)
+        self.assertEqual(result, [])
+        self.assertEqual(fetcher.call_count, 1)
+        self.assertIn('viewforum.php', fetcher.call_args.args[0])
+        self.assertEqual(merge([existing], result, NOW), [existing])
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
