@@ -62,7 +62,12 @@ def load_status(base, reset=False):
 def status_entry(feeds, failures, now):
     counts = {slug: sum(not item['id'].startswith('error:') for item in feed['items']) for slug, feed in feeds}
     summary = {'source_errors': len(failures), 'failures': failures, 'feed_items': counts}
-    return {'id': 'status:' + stamp(now), 'title': 'Feed update: ' + ('OK' if not failures else f'{len(failures)} source error(s)'), 'content_text': json.dumps(summary, ensure_ascii=False, indent=2)}
+    labels = {news.SLUG: 'Methow Valley News', trails.SLUG: 'Methow Trails', bulletin.SLUG: 'Methow Valley Bulletin Board'}
+    lines = ['Source errors: ' + str(len(failures)), '', 'Published items']
+    lines.extend('  ' + labels.get(slug, slug) + ': ' + str(count) for slug, count in counts.items())
+    lines.extend(['', 'Failures'])
+    lines.extend('  - ' + failure for failure in failures) if failures else lines.append('  None')
+    return {'id': 'status:' + stamp(now), 'title': 'Feed update: ' + ('OK' if not failures else f'{len(failures)} source error(s)'), 'content_text': '\n'.join(lines), '_status': summary}
 
 
 def generate_status(history, feeds, failures, now):
