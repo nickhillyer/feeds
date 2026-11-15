@@ -64,10 +64,10 @@ def collect(feed, now):
         if next_offset <= offset:
             raise ValueError('Forum pagination did not advance')
         offset = next_offset
-    retained = {item['id'] for item in feed['items']}
+    known = {item['id'].split(':', 1)[1] for item in feed['items'] if item['id'].startswith('topic:')}
     result = []
-    for topic_id in sorted(ids, key=int, reverse=True):
+    for topic_id in sorted(ids - known, key=int, reverse=True):
         item, created = extract(page(topic_url(topic_id)), topic_id)
-        if item['id'] in retained or created >= cutoff:
+        if created >= cutoff:
             result.append(item)
     return result
