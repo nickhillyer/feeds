@@ -312,13 +312,17 @@ class CommandTests(unittest.TestCase):
                     stack.enter_context(patch('sys.argv', ['feeds', '--base-url', base, '--output', directory, '--bootstrap']))
                     for adapter in ADAPTERS:
                         stack.enter_context(patch.object(adapter, 'collect', return_value=[{'id': adapter.SLUG + ':1', 'content_text': 'Original'}]))
-                    self.assertEqual(main(), 0)
+                    with patch('feeds.__main__.datetime') as clock:
+                        clock.now.return_value = NOW
+                        self.assertEqual(main(), 0)
                 before = {adapter.SLUG: json.loads((Path(directory) / (adapter.SLUG + '.json')).read_text()) for adapter in ADAPTERS}
                 with contextlib.ExitStack() as stack:
                     stack.enter_context(patch('sys.argv', ['feeds', '--base-url', base, '--output', directory]))
                     for adapter in ADAPTERS:
                         stack.enter_context(patch.object(adapter, 'collect', return_value=[{'id': adapter.SLUG + ':1', 'content_text': 'Original'}]))
-                    self.assertEqual(main(), 0)
+                    with patch('feeds.__main__.datetime') as clock:
+                        clock.now.return_value = NOW + timedelta(hours=3)
+                        self.assertEqual(main(), 0)
                 for adapter in ADAPTERS:
                     after = json.loads((Path(directory) / (adapter.SLUG + '.json')).read_text())
                     self.assertEqual(after['items'], before[adapter.SLUG]['items'])
