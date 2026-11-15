@@ -7,6 +7,7 @@ from .common import RETENTION, fetch, instant, normalize, stamp, Tree
 
 TITLE = 'Methow Valley News'
 HOME = 'https://methowvalleynews.com'
+ICON = 'https://methowvalleynews.com/wp-content/uploads/MVN_SiteIcon.png'
 SOURCE = HOME
 SLUG = 'methow-valley-news'
 API = HOME + '/wp-json/wp/v2/posts'

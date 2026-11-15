@@ -6,13 +6,13 @@ from datetime import datetime
 from pathlib import Path
 
 from . import bulletin, news, trails
-from .common import UTC, RETENTION, diagnostic, discover_icon, fetch, fingerprint, instant, merge, stamp, validate
+from .common import UTC, RETENTION, diagnostic, fetch, fingerprint, instant, merge, stamp, validate
 
 ADAPTERS = (news, trails, bulletin)
 
 
 def empty_feed(adapter, url):
-    return {'version': 'https://jsonfeed.org/version/1.1', 'title': adapter.TITLE, 'home_page_url': adapter.SOURCE, 'feed_url': url, 'items': [], '_feeds': {'initialized': False}}
+    return {'version': 'https://jsonfeed.org/version/1.1', 'title': adapter.TITLE, 'home_page_url': adapter.SOURCE, 'feed_url': url, 'icon': adapter.ICON, 'items': [], '_feeds': {'initialized': False}}
 
 
 def load(adapter, base, bootstrap, reset=False):
@@ -41,17 +41,13 @@ def generate(adapter, feed, now):
     feed['items'] = [item for item in feed['items'] if instant(item['date_published']) >= now - RETENTION]
     incoming = []
     failures = []
-    for operation, action in [('source processing', lambda: adapter.collect(feed, now)), ('icon discovery', lambda: discover_icon(adapter.HOME))]:
-        try:
-            result = action()
-            if operation == 'source processing':
-                incoming.extend(result)
-                feed['_feeds'] = {'initialized': True, 'last_successful_at': stamp(now)}
-            else:
-                feed['icon'] = result
-        except Exception as error:
-            failures.append(operation + ': ' + diagnostic(error))
-            incoming.append(error_item(adapter, operation, error, now))
+    feed['icon'] = adapter.ICON
+    try:
+        incoming.extend(adapter.collect(feed, now))
+        feed['_feeds'] = {'initialized': True, 'last_successful_at': stamp(now)}
+    except Exception as error:
+        failures.append('source processing: ' + diagnostic(error))
+        incoming.append(error_item(adapter, 'source processing', error, now))
     feed['items'] = merge(feed['items'], incoming, now)
     validate(feed)
     return feed, failures

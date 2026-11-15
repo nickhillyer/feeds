@@ -7,9 +7,7 @@ from .common import Tree, normalize
 
 URLS = (
     'https://methowvalleynews.com/wp-json/wp/v2/posts?per_page=1&_embed=1',
-    'https://methowvalleynews.com/',
     'https://methowvalley.com/bb/viewforum.php?f=3&sk=t&sd=d&start=0',
-    'https://methowvalley.com/favicon.ico',
 )
 AGENTS = (
     ('feeds', 'Feeds/1.0 (+https://github.com/nickhillyer/feeds)'),

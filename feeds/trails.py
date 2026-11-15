@@ -2,6 +2,7 @@ from .common import fingerprint, normalize, page, required, stamp
 
 TITLE = 'Methow Trails'
 HOME = 'https://methowtrails.org'
+ICON = 'https://methowtrails.org/images/favicons/apple-touch-icon.png'
 SOURCE = HOME + '/conditions'
 SLUG = 'methow-trails'
 

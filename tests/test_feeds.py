@@ -119,21 +119,27 @@ class LifecycleTests(unittest.TestCase):
 
     def test_errors_preserve_history_and_bootstrap(self):
         feed = history([item()], initialized=False)
-        with patch.object(news, 'collect', side_effect=ValueError('Missing article author')), patch('feeds.__main__.discover_icon', return_value='https://example.org/icon.png'):
+        with patch.object(news, 'collect', side_effect=ValueError('Missing article author')):
             result, failures = generate(news, feed, NOW)
         self.assertEqual(len(failures), 1)
         self.assertFalse(result['_feeds']['initialized'])
         self.assertEqual(len(result['items']), 2)
         self.assertIn('Missing article author', next(x for x in result['items'] if x['id'].startswith('error:'))['content_text'])
 
-    def test_icon_failure_does_not_erase_success(self):
-        feed = history(initialized=False)
-        feed['icon'] = 'https://example.org/old.png'
-        with patch.object(news, 'collect', return_value=[]), patch('feeds.__main__.discover_icon', side_effect=ValueError('No icon')):
-            result, failures = generate(news, feed, NOW)
-        self.assertTrue(result['_feeds']['initialized'])
-        self.assertEqual(result['icon'], feed['icon'])
-        self.assertEqual(len(failures), 1)
+    def test_fixed_icons_require_no_network_requests(self):
+        for adapter in ADAPTERS:
+            for old_icon in (None, 'https://example.org/old.png'):
+                with self.subTest(adapter=adapter.SLUG, old_icon=old_icon):
+                    feed = history(initialized=False)
+                    if old_icon:
+                        feed['icon'] = old_icon
+                    with patch.object(adapter, 'collect', return_value=[]) as collect, patch('feeds.common.urllib.request.urlopen', side_effect=AssertionError('No icon requests')) as request:
+                        result, failures = generate(adapter, feed, NOW)
+                    self.assertTrue(result['_feeds']['initialized'])
+                    self.assertEqual(result['icon'], adapter.ICON)
+                    self.assertEqual(failures, [])
+                    collect.assert_called_once()
+                    request.assert_not_called()
 
     def test_diagnostic_redaction(self):
         self.assertNotIn('secret', diagnostic(ValueError('Bad https://example.org?sid=secret')))
@@ -238,7 +244,6 @@ class CommandTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
             stack.enter_context(patch('sys.argv', ['feeds', '--base-url', 'https://example.org', '--output', directory, '--reset']))
             fetcher = stack.enter_context(patch('feeds.__main__.fetch', side_effect=AssertionError('Reset must not fetch history')))
-            stack.enter_context(patch('feeds.__main__.discover_icon', return_value='https://example.org/icon.png'))
             for adapter in ADAPTERS:
                 (Path(directory) / (adapter.SLUG + '.json')).write_text(json.dumps(history([item('old:1', when=NOW - timedelta(days=2)), item('error:old')])))
                 stack.enter_context(patch.object(adapter, 'collect', side_effect=collect))
@@ -250,6 +255,7 @@ class CommandTests(unittest.TestCase):
                 validate(result)
                 self.assertEqual([entry['id'] for entry in result['items']], ['new:1'])
                 self.assertTrue(result['_feeds']['initialized'])
+                self.assertEqual(result['icon'], adapter.ICON)
                 self.assertEqual(result['items'][0]['date_published'], result['_feeds']['last_successful_at'])
 
 
@@ -262,14 +268,12 @@ class CommandTests(unittest.TestCase):
             try:
                 with contextlib.ExitStack() as stack:
                     stack.enter_context(patch('sys.argv', ['feeds', '--base-url', base, '--output', directory, '--bootstrap']))
-                    stack.enter_context(patch('feeds.__main__.discover_icon', return_value='https://example.org/icon.png'))
                     for adapter in ADAPTERS:
                         stack.enter_context(patch.object(adapter, 'collect', return_value=[{'id': adapter.SLUG + ':1', 'content_text': 'Original'}]))
                     self.assertEqual(main(), 0)
                 before = {adapter.SLUG: json.loads((Path(directory) / (adapter.SLUG + '.json')).read_text()) for adapter in ADAPTERS}
                 with contextlib.ExitStack() as stack:
                     stack.enter_context(patch('sys.argv', ['feeds', '--base-url', base, '--output', directory]))
-                    stack.enter_context(patch('feeds.__main__.discover_icon', return_value='https://example.org/icon.png'))
                     for adapter in ADAPTERS:
                         stack.enter_context(patch.object(adapter, 'collect', return_value=[{'id': adapter.SLUG + ':1', 'content_text': 'Original'}]))
                     self.assertEqual(main(), 0)

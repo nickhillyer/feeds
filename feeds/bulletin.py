@@ -7,6 +7,7 @@ from .common import RETENTION, instant, normalize, page, required
 
 TITLE = 'Methow Valley Bulletin Board'
 HOME = 'https://methowvalley.com'
+ICON = 'https://methowvalley.com/favicon.ico'
 SOURCE = HOME + '/bb/viewforum.php?f=3'
 SLUG = 'methow-valley-bulletin-board'
 DATE = r'(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) [A-Z][a-z]{2} \d{1,2}, \d{4} \d{1,2}:\d{2} [ap]m'

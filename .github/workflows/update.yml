@@ -39,19 +39,6 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - uses: actions/configure-pages@v5
         id: pages
-      - name: Read published icon URLs
-        env:
-          BASE_URL: ${{ steps.pages.outputs.base_url }}
-        run: |
-          python - <<'PYTHON'
-          import json
-          import os
-          import urllib.request
-          for slug in ('methow-valley-news', 'methow-trails', 'methow-valley-bulletin-board'):
-              with urllib.request.urlopen(os.environ['BASE_URL'] + '/' + slug + '.json', timeout=30) as response:
-                  feed = json.load(response)
-              print('::notice::Saved icon ' + slug + ': ' + str(feed.get('icon')), flush=True)
-          PYTHON
       - name: Diagnose source access
         if: ${{ inputs.diagnostics == true }}
         run: python -m feeds.diagnose

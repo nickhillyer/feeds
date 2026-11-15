@@ -3,7 +3,6 @@ import json
 import re
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
@@ -128,24 +127,6 @@ def page(url):
 
 def fingerprint(value):
     return hashlib.sha256(value.encode()).hexdigest()
-
-
-def discover_icon(home):
-    root = page(home)
-    links = list(root.walk(lambda n: n.tag == 'link' and 'icon' in n.attrs.get('rel', '').lower()))
-    links.sort(key=lambda n: 0 if 'apple-touch-icon' in n.attrs.get('rel', '') else 1)
-    candidates = [urllib.parse.urljoin(home, n.attrs.get('href', '')) for n in links]
-    candidates.append(urllib.parse.urljoin(home, '/favicon.ico'))
-    for url in candidates:
-        if urllib.parse.urlsplit(url).scheme not in ('http', 'https'):
-            continue
-        try:
-            data, kind = fetch(url)
-            if data and ('image/' in kind or 'octet-stream' in kind):
-                return url
-        except (OSError, ValueError):
-            continue
-    raise ValueError('No usable homepage icon or favicon found')
 
 
 def validate(feed):
