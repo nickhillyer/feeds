@@ -56,7 +56,8 @@ jobs:
           import os
           from pathlib import Path
 
-          status = json.loads(Path('output/status.json').read_text())
+          status_feed = json.loads(Path('output/status.json').read_text())
+          status = json.loads(status_feed['items'][0]['content_text'])
           for failure in status['failures']:
               message = failure.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
               print('::warning::' + message)
