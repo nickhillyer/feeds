@@ -14,10 +14,6 @@ on:
         type: boolean
         default: false
         description: Reset feeds and regenerate all items with new discovery times
-      diagnostics:
-        type: boolean
-        default: false
-        description: Compare source responses and request headers
 permissions:
   contents: read
   pages: write
@@ -39,9 +35,6 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - uses: actions/configure-pages@v5
         id: pages
-      - name: Diagnose source access
-        if: ${{ inputs.diagnostics == true }}
-        run: python -m feeds.diagnose
       - name: Generate feeds
         env:
           BASE_URL: ${{ steps.pages.outputs.base_url }}
