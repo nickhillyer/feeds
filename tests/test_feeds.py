@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from feeds import bulletin, news, trails
-from feeds.__main__ import ADAPTERS, generate, load, main
+from feeds.__main__ import ADAPTERS, generate, generate_status, load, load_status, main, status_entry
 from feeds.common import UTC, SourceChallenge, Tree, diagnostic, fetch, merge, stamp, validate
 
 NOW = datetime(2026, 11, 14, 23, tzinfo=UTC)
@@ -236,6 +236,38 @@ class BulletinTests(unittest.TestCase):
         self.assertEqual(merge([existing], result, NOW), [existing])
 
 
+
+class StatusTests(unittest.TestCase):
+    def test_one_entry_per_run_and_thirty_day_retention(self):
+        old = item('status:old', 'Old run', NOW - timedelta(days=31))
+        recent = item('status:recent', 'Recent run', NOW - timedelta(days=2))
+        result = generate_status(history([old, recent]), [], ['News: source processing: HTTP 503'], NOW)
+        self.assertEqual(len(result['items']), 2)
+        self.assertEqual(result['items'][1], recent)
+        self.assertEqual(result['items'][0]['date_published'], stamp(NOW))
+        self.assertEqual(result['items'][0]['title'], 'Feed update: 1 source error(s)')
+        self.assertEqual(json.loads(result['items'][0]['content_text'])['failures'], ['News: source processing: HTTP 503'])
+        validate(result)
+
+    def test_legacy_status_is_migrated_and_missing_status_is_allowed(self):
+        legacy = json.dumps({'source_errors': 0, 'failures': [], 'feed_items': {}}).encode()
+        with patch('feeds.__main__.fetch', return_value=(legacy, 'application/json')):
+            result = load_status('https://example.org')
+        self.assertEqual(result['items'], [])
+        self.assertFalse(result['_feeds']['initialized'])
+        missing = urllib.error.HTTPError('https://example.org/status.json', 404, 'Missing', {}, None)
+        with patch('feeds.__main__.fetch', side_effect=missing):
+            self.assertEqual(load_status('https://example.org')['items'], [])
+        with patch('feeds.__main__.fetch', return_value=(b'not json', 'application/json')):
+            with self.assertRaises(ValueError):
+                load_status('https://example.org')
+
+    def test_status_counts_content_items(self):
+        feeds = [('news', history([item('news:1'), item('error:1')]))]
+        summary = json.loads(status_entry(feeds, [], NOW)['content_text'])
+        self.assertEqual(summary, {'source_errors': 0, 'failures': [], 'feed_items': {'news': 1}})
+
+
 class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -291,7 +323,10 @@ class CommandTests(unittest.TestCase):
                     after = json.loads((Path(directory) / (adapter.SLUG + '.json')).read_text())
                     self.assertEqual(after['items'], before[adapter.SLUG]['items'])
                     validate(after)
-                self.assertEqual(json.loads((Path(directory) / 'status.json').read_text())['source_errors'], 0)
+                status = json.loads((Path(directory) / 'status.json').read_text())
+                validate(status)
+                self.assertEqual(len(status['items']), 2)
+                self.assertEqual(json.loads(status['items'][0]['content_text'])['source_errors'], 0)
                 (Path(directory) / (news.SLUG + '.json')).write_text('broken')
                 with patch('sys.argv', ['feeds', '--base-url', base, '--output', directory]), contextlib.redirect_stderr(io.StringIO()):
                     self.assertEqual(main(), 1)
