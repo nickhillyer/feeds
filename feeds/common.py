@@ -1,5 +1,4 @@
 import hashlib
-import json
 import re
 import time
 import urllib.error
@@ -44,13 +43,6 @@ def fetch(url, with_headers=False):
             if attempt == 2:
                 raise
         time.sleep(2 ** (attempt + 1))
-
-
-def get_json(url):
-    data, content_type = fetch(url)
-    if 'json' not in content_type:
-        raise ValueError('Expected JSON; source may be serving an access challenge')
-    return json.loads(data)
 
 
 class Node:
