@@ -1,0 +1,40 @@
+name: Keep scheduled workflows active
+
+on:
+  schedule:
+    - cron: '41 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feeds-keepalive
+  cancel-in-progress: false
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Commit only after 30 days without activity
+        shell: bash
+        run: |
+          # Public repositories lose scheduled workflows after 60 inactive days.
+          # Pages deployments do not update Git history, so leave ample margin.
+          last_commit=$(git log -1 --format=%ct)
+          now=$(date +%s)
+          if (( now - last_commit < 30 * 24 * 60 * 60 )); then
+            echo "Recent commit found; no keepalive needed."
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit --allow-empty -m 'chore: keep scheduled feeds active'
+          # GITHUB_TOKEN pushes do not trigger another push workflow run.
+          git push origin HEAD:main
