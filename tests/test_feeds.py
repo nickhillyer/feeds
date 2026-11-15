@@ -246,7 +246,7 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(result['items'][1], recent)
         self.assertEqual(result['items'][0]['date_published'], stamp(NOW))
         self.assertEqual(result['items'][0]['title'], 'Feed update: 1 source error(s)')
-        self.assertEqual(json.loads(result['items'][0]['content_text'])['failures'], ['News: source processing: HTTP 503'])
+        self.assertEqual(result['items'][0]['_status']['failures'], ['News: source processing: HTTP 503'])
         validate(result)
 
     def test_legacy_status_is_migrated_and_missing_status_is_allowed(self):
@@ -262,9 +262,20 @@ class StatusTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 load_status('https://example.org')
 
+    def test_status_formats_failures_for_readers(self):
+        entry = status_entry([], ['Methow Trails: source processing: HTTP 503'], NOW)
+        self.assertIn('Source errors: 1', entry['content_text'])
+        self.assertIn('  - Methow Trails: source processing: HTTP 503', entry['content_text'])
+        self.assertEqual(entry['_status']['source_errors'], 1)
+
     def test_status_counts_content_items(self):
         feeds = [('news', history([item('news:1'), item('error:1')]))]
-        summary = json.loads(status_entry(feeds, [], NOW)['content_text'])
+        entry = status_entry(feeds, [], NOW)
+        summary = entry['_status']
+        self.assertIn('Source errors: 0', entry['content_text'])
+        self.assertIn('Published items', entry['content_text'])
+        self.assertIn('  news: 1', entry['content_text'])
+        self.assertIn('  None', entry['content_text'])
         self.assertEqual(summary, {'source_errors': 0, 'failures': [], 'feed_items': {'news': 1}})
 
 
@@ -330,7 +341,7 @@ class CommandTests(unittest.TestCase):
                 status = json.loads((Path(directory) / 'status.json').read_text())
                 validate(status)
                 self.assertEqual(len(status['items']), 2)
-                self.assertEqual(json.loads(status['items'][0]['content_text'])['source_errors'], 0)
+                self.assertEqual(status['items'][0]['_status']['source_errors'], 0)
                 (Path(directory) / (news.SLUG + '.json')).write_text('broken')
                 with patch('sys.argv', ['feeds', '--base-url', base, '--output', directory]), contextlib.redirect_stderr(io.StringIO()):
                     self.assertEqual(main(), 1)
