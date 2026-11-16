@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
-from .common import RETENTION, instant, normalize, page, required
+from .common import RETENTION, instant, normalize, page
 
 TITLE = 'Methow Valley Bulletin Board'
 HOME = 'https://methowvalley.com'
@@ -24,20 +24,11 @@ def topic_url(topic_id):
     return HOME + '/bb/viewtopic.php?t=' + str(int(topic_id))
 
 
-def extract(root, topic_id):
-    body = required(root, lambda n: n.has('postbody'), 'original post')
-    title = required(body, lambda n: n.tag == 'h3', 'topic title')
-    author_line = required(body, lambda n: n.has('author'), 'original post author line')
-    author = required(author_line, lambda n: n.has('username') or n.has('username-coloured'), 'topic creator')
-    content = required(body, lambda n: n.has('content'), 'original post content')
-    created = posted(normalize(author_line.text()))
-    return {'id': 'topic:' + str(int(topic_id)), 'title': normalize(title.text()), 'authors': [{'name': normalize(author.text())}], 'content_text': normalize(content.text()), 'url': topic_url(topic_id)}, created
-
-
 def collect(feed, now):
     state = feed['_feeds']
     cutoff = now - timedelta(days=1) if not state['initialized'] else max(now - RETENTION, instant(state['last_successful_at']) - timedelta(hours=3))
-    ids = {item['id'].split(':')[1] for item in feed['items'] if item['id'].startswith('topic:')}
+    known = {item['id'].split(':', 1)[1] for item in feed['items'] if item['id'].startswith('topic:')}
+    result = {}
     offset = 0
     while True:
         root = page(SOURCE + '&' + urlencode({'sk': 't', 'sd': 'd', 'start': offset}))
@@ -50,13 +41,16 @@ def collect(feed, now):
             if link is None:
                 continue
             topic_id = parse_qs(urlsplit(urljoin(SOURCE, link.attrs['href'])).query)['t'][0]
-            author = required(row, lambda n: n.has('topic-poster'), 'topic creation date')
+            author = row.find(lambda n: n.has('topic-poster'))
+            if author is None:
+                raise ValueError('Missing topic creation date')
             created = posted(normalize(author.text()))
             pinned = row.find(lambda n: 'sticky' in n.attrs.get('class', '') or 'announce' in n.attrs.get('class', '')) is not None
             if not pinned:
                 dates.append(created)
-            if created >= cutoff:
-                ids.add(topic_id)
+            if created >= cutoff and topic_id not in known:
+                title = normalize(link.text())
+                result[topic_id] = {'id': 'topic:' + str(int(topic_id)), 'title': title, 'content_text': title, 'url': topic_url(topic_id)}
         next_page = root.find(lambda n: n.tag == 'a' and n.attrs.get('rel') == 'next')
         if not next_page or (dates and max(dates) < cutoff):
             break
@@ -64,10 +58,4 @@ def collect(feed, now):
         if next_offset <= offset:
             raise ValueError('Forum pagination did not advance')
         offset = next_offset
-    known = {item['id'].split(':', 1)[1] for item in feed['items'] if item['id'].startswith('topic:')}
-    result = []
-    for topic_id in sorted(ids - known, key=int, reverse=True):
-        item, created = extract(page(topic_url(topic_id)), topic_id)
-        if created >= cutoff:
-            result.append(item)
-    return result
+    return [result[topic_id] for topic_id in sorted(result, key=int, reverse=True)]

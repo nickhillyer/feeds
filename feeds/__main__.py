@@ -1,12 +1,13 @@
 import argparse
 import json
+from html import escape
 import sys
 import urllib.error
 from datetime import datetime
 from pathlib import Path
 
 from . import bulletin, news, trails
-from .common import UTC, RETENTION, diagnostic, fetch, fingerprint, instant, merge, stamp, validate
+from .common import UTC, RETENTION, count_requests, request_source, diagnostic, fetch, fingerprint, instant, merge, stamp, validate
 
 ADAPTERS = (news, trails, bulletin)
 
@@ -15,7 +16,7 @@ class Status:
     TITLE = 'Feeds Update Status'
     SOURCE = 'https://github.com/nickhillyer/feeds'
     SLUG = 'status'
-    ICON = 'https://github.githubassets.com/favicons/favicon.svg'
+    ICON = 'https://github.githubassets.com/apple-touch-icon-180x180.png'
 
 
 def empty_feed(adapter, url):
@@ -59,19 +60,27 @@ def load_status(base, reset=False):
     return feed
 
 
-def status_entry(feeds, failures, now):
+def status_entry(feeds, failures, now, requests=None):
     counts = {slug: sum(not item['id'].startswith('error:') for item in feed['items']) for slug, feed in feeds}
-    summary = {'source_errors': len(failures), 'failures': failures, 'feed_items': counts}
+    requests = dict(requests or {})
+    summary = {'source_errors': len(failures), 'failures': failures, 'feed_items': counts, 'http_requests': requests, 'http_requests_total': sum(requests.values())}
     labels = {news.SLUG: 'Methow Valley News', trails.SLUG: 'Methow Trails', bulletin.SLUG: 'Methow Valley Bulletin Board'}
     lines = ['Source errors: ' + str(len(failures)), '', 'Published items']
     lines.extend('  ' + labels.get(slug, slug) + ': ' + str(count) for slug, count in counts.items())
     lines.extend(['', 'Failures'])
     lines.extend('  - ' + failure for failure in failures) if failures else lines.append('  None')
-    return {'id': 'status:' + stamp(now), 'title': 'Feed update: ' + ('OK' if not failures else f'{len(failures)} source error(s)'), 'content_text': '\n'.join(lines), '_status': summary}
+    html = ['<h2>Feed update summary</h2>', '<p><strong>Source errors:</strong> ' + str(len(failures)) + '</p>', '<h3>Published items</h3>', '<ul>']
+    html.extend('<li>' + escape(labels.get(slug, slug)) + ': ' + str(count) + '</li>' for slug, count in counts.items())
+    html.extend(['</ul>', '<h3>HTTP requests</h3>', '<ul>'])
+    html.extend('<li>' + escape(source) + ': ' + str(count) + '</li>' for source, count in requests.items())
+    html.extend(['</ul>', '<p><strong>Total HTTP requests:</strong> ' + str(sum(requests.values())) + '</p>', '<h3>Failures</h3>'])
+    html.append('<ul>' + ''.join('<li>' + escape(failure) + '</li>' for failure in failures) + '</ul>' if failures else '<p>None</p>')
+    return {'id': 'status:' + stamp(now), 'title': 'Feed update: ' + ('OK' if not failures else f'{len(failures)} source error(s)'), 'content_text': '\n'.join(lines), 'content_html': '\n'.join(html), '_status': summary}
 
 
-def generate_status(history, feeds, failures, now):
-    history['items'] = merge(history['items'], [status_entry(feeds, failures, now)], now)
+def generate_status(history, feeds, failures, now, requests=None):
+    history['icon'] = Status.ICON
+    history['items'] = merge(history['items'], [status_entry(feeds, failures, now, requests)], now)
     history['_feeds'] = {'initialized': True, 'last_successful_at': stamp(now)}
     validate(history)
     return history
@@ -84,6 +93,11 @@ def error_item(adapter, operation, error, now):
 
 def generate(adapter, feed, now):
     feed['items'] = [item for item in feed['items'] if instant(item['date_published']) >= now - RETENTION]
+    if adapter is bulletin:
+        for item in feed['items']:
+            if item['id'].startswith('topic:'):
+                item['content_text'] = item['title']
+                item.pop('content_html', None)
     incoming = []
     failures = []
     feed['icon'] = adapter.ICON
@@ -106,19 +120,23 @@ def main():
     parser.add_argument('--reset', action='store_true')
     args = parser.parse_args()
     now = datetime.now(UTC)
-    try:
-        histories = [(adapter, load(adapter, args.base_url, args.bootstrap, args.reset)) for adapter in ADAPTERS]
-        status_history = load_status(args.base_url, args.reset)
-    except Exception as error:
-        print('History recovery failed; deployment blocked: ' + diagnostic(error), file=sys.stderr)
-        return 1
-    feeds = []
-    failures = []
-    for adapter, history in histories:
-        feed, errors = generate(adapter, history, now)
-        feeds.append((adapter.SLUG, feed))
-        failures.extend(adapter.TITLE + ': ' + error for error in errors)
-    feeds.append((Status.SLUG, generate_status(status_history, feeds, failures, now)))
+    requests = {'history': 0, **{adapter.SLUG: 0 for adapter in ADAPTERS}}
+    with count_requests(requests):
+        try:
+            with request_source('history'):
+                histories = [(adapter, load(adapter, args.base_url, args.bootstrap, args.reset)) for adapter in ADAPTERS]
+                status_history = load_status(args.base_url, args.reset)
+        except Exception as error:
+            print('History recovery failed; deployment blocked: ' + diagnostic(error), file=sys.stderr)
+            return 1
+        feeds = []
+        failures = []
+        for adapter, history in histories:
+            with request_source(adapter.SLUG):
+                feed, errors = generate(adapter, history, now)
+            feeds.append((adapter.SLUG, feed))
+            failures.extend(adapter.TITLE + ': ' + error for error in errors)
+    feeds.append((Status.SLUG, generate_status(status_history, feeds, failures, now, requests)))
     args.output.mkdir(parents=True, exist_ok=True)
     for slug, feed in feeds:
         target = args.output / (slug + '.json')
