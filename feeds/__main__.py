@@ -96,7 +96,7 @@ def generate(adapter, feed, now):
     if adapter is bulletin:
         for item in feed['items']:
             if item['id'].startswith('topic:'):
-                item['content_text'] = item['title']
+                item['content_text'] = ''
                 item.pop('content_html', None)
     incoming = []
     failures = []

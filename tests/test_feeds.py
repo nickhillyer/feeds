@@ -216,7 +216,7 @@ class BulletinTests(unittest.TestCase):
     def test_title_only_from_listing(self):
         with patch.object(bulletin, 'page', return_value=forum_page(123, 'Sat Nov 14, 2026 2:42 pm')) as fetcher:
             result = bulletin.collect(history(initialized=False), NOW)
-        self.assertEqual(result, [{'id': 'topic:123', 'title': 'Topic', 'content_text': 'Topic', 'url': bulletin.topic_url(123)}])
+        self.assertEqual(result, [{'id': 'topic:123', 'title': 'Topic', 'content_text': '', 'url': bulletin.topic_url(123)}])
         self.assertEqual(fetcher.call_count, 1)
 
     def test_pagination_cutoff_and_retained_refresh(self):
