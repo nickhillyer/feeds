@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from feeds import bulletin, news, trails
 from feeds.__main__ import ADAPTERS, generate, generate_status, load, load_status, main, status_entry
-from feeds.common import UTC, SourceChallenge, Tree, diagnostic, fetch, merge, stamp, validate
+from feeds.common import UTC, SourceChallenge, Tree, count_requests, request_source, diagnostic, fetch, merge, stamp, validate
 
 NOW = datetime(2026, 11, 14, 23, tzinfo=UTC)
 
@@ -53,6 +53,14 @@ class RequestTests(unittest.TestCase):
 
     def challenge(self):
         return self.response(b'<meta http-equiv="refresh" content="0;/.well-known/sgcaptcha/?r=secret">', 'text/html', 202)
+
+    def test_request_counts_include_retries_and_failures(self):
+        counts = {}
+        unavailable = urllib.error.HTTPError('https://example.org', 503, 'Unavailable', {}, None)
+        with count_requests(counts), request_source('news'):
+            with patch('feeds.common.urllib.request.urlopen', side_effect=[unavailable, self.response()]), patch('feeds.common.time.sleep'):
+                fetch('https://example.org')
+        self.assertEqual(counts, {'news': 2})
 
     def test_challenge_then_recovery(self):
         with patch('feeds.common.urllib.request.urlopen', side_effect=[self.challenge(), self.response()]) as request, patch('feeds.common.time.sleep') as sleep:
@@ -205,23 +213,18 @@ class NewsTests(unittest.TestCase):
 
 
 class BulletinTests(unittest.TestCase):
-    def test_original_only(self):
-        first, created = bulletin.extract(topic_page(), 123)
-        second, _ = bulletin.extract(topic_page(reply='Changed reply'), 123)
-        self.assertEqual(first, second)
-        self.assertEqual(first['content_text'], 'Original\nSecond line')
-        self.assertEqual(first['authors'], [{'name': 'Creator'}])
-        self.assertEqual(first['url'], 'https://methowvalley.com/bb/viewtopic.php?t=123')
-        self.assertEqual(created.astimezone(UTC).hour, 22)
-        edited, _ = bulletin.extract(topic_page(text='Edited'), 123)
-        self.assertNotEqual(first, edited)
+    def test_title_only_from_listing(self):
+        with patch.object(bulletin, 'page', return_value=forum_page(123, 'Sat Nov 14, 2026 2:42 pm')) as fetcher:
+            result = bulletin.collect(history(initialized=False), NOW)
+        self.assertEqual(result, [{'id': 'topic:123', 'title': 'Topic', 'content_text': 'Topic', 'url': bulletin.topic_url(123)}])
+        self.assertEqual(fetcher.call_count, 1)
 
     def test_pagination_cutoff_and_retained_refresh(self):
-        pages = [forum_page(2, 'Sat Nov 14, 2026 2:42 pm', 25), forum_page(1, 'Mon Nov 09, 2026 2:42 pm', 50), topic_page(), topic_page()]
+        pages = [forum_page(2, 'Sat Nov 14, 2026 2:42 pm', 25), forum_page(1, 'Mon Nov 09, 2026 2:42 pm', 50)]
         with patch.object(bulletin, 'page', side_effect=pages) as fetcher:
             result = bulletin.collect(history([item('topic:99')], initialized=False), NOW)
         self.assertEqual({x['id'] for x in result}, {'topic:2'})
-        self.assertEqual(fetcher.call_count, 3)
+        self.assertEqual(fetcher.call_count, 2)
         self.assertIn('sk=t', fetcher.call_args_list[0].args[0])
         self.assertIn('start=25', fetcher.call_args_list[1].args[0])
 
@@ -238,6 +241,14 @@ class BulletinTests(unittest.TestCase):
 
 
 class StatusTests(unittest.TestCase):
+    def test_request_summary_and_html_escaping(self):
+        entry = status_entry([], ['Bad <source>'], NOW, {'history': 4, 'methow-trails': 2})
+        self.assertEqual(entry['_status']['http_requests_total'], 6)
+        self.assertEqual(entry['_status']['http_requests']['history'], 4)
+        self.assertIn('Total HTTP requests:</strong> 6', entry['content_html'])
+        self.assertIn('Bad &lt;source&gt;', entry['content_html'])
+
+
     def test_one_entry_per_run_and_thirty_day_retention(self):
         old = item('status:old', 'Old run', NOW - timedelta(days=31))
         recent = item('status:recent', 'Recent run', NOW - timedelta(days=2))
@@ -267,6 +278,7 @@ class StatusTests(unittest.TestCase):
         self.assertIn('Source errors: 1', entry['content_text'])
         self.assertIn('  - Methow Trails: source processing: HTTP 503', entry['content_text'])
         self.assertEqual(entry['_status']['source_errors'], 1)
+        self.assertIn('<h3>Failures</h3>', entry['content_html'])
 
     def test_status_counts_content_items(self):
         feeds = [('news', history([item('news:1'), item('error:1')]))]
@@ -276,7 +288,7 @@ class StatusTests(unittest.TestCase):
         self.assertIn('Published items', entry['content_text'])
         self.assertIn('  news: 1', entry['content_text'])
         self.assertIn('  None', entry['content_text'])
-        self.assertEqual(summary, {'source_errors': 0, 'failures': [], 'feed_items': {'news': 1}})
+        self.assertEqual(summary, {'source_errors': 0, 'failures': [], 'feed_items': {'news': 1}, 'http_requests': {}, 'http_requests_total': 0})
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -342,6 +354,8 @@ class CommandTests(unittest.TestCase):
                 validate(status)
                 self.assertEqual(len(status['items']), 2)
                 self.assertEqual(status['items'][0]['_status']['source_errors'], 0)
+                self.assertEqual(status['items'][0]['_status']['http_requests']['history'], 4)
+                self.assertEqual(status['items'][0]['_status']['http_requests_total'], 4)
                 (Path(directory) / (news.SLUG + '.json')).write_text('broken')
                 with patch('sys.argv', ['feeds', '--base-url', base, '--output', directory]), contextlib.redirect_stderr(io.StringIO()):
                     self.assertEqual(main(), 1)
