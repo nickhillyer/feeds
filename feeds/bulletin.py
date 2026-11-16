@@ -50,7 +50,7 @@ def collect(feed, now):
                 dates.append(created)
             if created >= cutoff and topic_id not in known:
                 title = normalize(link.text())
-                result[topic_id] = {'id': 'topic:' + str(int(topic_id)), 'title': title, 'content_text': title, 'url': topic_url(topic_id)}
+                result[topic_id] = {'id': 'topic:' + str(int(topic_id)), 'title': title, 'content_text': '', 'url': topic_url(topic_id)}
         next_page = root.find(lambda n: n.tag == 'a' and n.attrs.get('rel') == 'next')
         if not next_page or (dates and max(dates) < cutoff):
             break
