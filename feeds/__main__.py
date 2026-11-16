@@ -62,7 +62,7 @@ def load_status(base, reset=False):
 
 def status_entry(feeds, failures, now, requests=None):
     counts = {slug: sum(not item['id'].startswith('error:') for item in feed['items']) for slug, feed in feeds}
-    requests = dict(requests or {})
+    requests = {slug: (requests or {}).get(slug, 0) for slug in (news.SLUG, trails.SLUG, bulletin.SLUG)}
     summary = {'source_errors': len(failures), 'failures': failures, 'feed_items': counts, 'http_requests': requests, 'http_requests_total': sum(requests.values())}
     labels = {news.SLUG: 'Methow Valley News', trails.SLUG: 'Methow Trails', bulletin.SLUG: 'Methow Valley Bulletin Board'}
     lines = ['Source errors: ' + str(len(failures)), '', 'Published items']
@@ -120,12 +120,11 @@ def main():
     parser.add_argument('--reset', action='store_true')
     args = parser.parse_args()
     now = datetime.now(UTC)
-    requests = {'history': 0, **{adapter.SLUG: 0 for adapter in ADAPTERS}}
+    requests = {adapter.SLUG: 0 for adapter in ADAPTERS}
     with count_requests(requests):
         try:
-            with request_source('history'):
-                histories = [(adapter, load(adapter, args.base_url, args.bootstrap, args.reset)) for adapter in ADAPTERS]
-                status_history = load_status(args.base_url, args.reset)
+            histories = [(adapter, load(adapter, args.base_url, args.bootstrap, args.reset)) for adapter in ADAPTERS]
+            status_history = load_status(args.base_url, args.reset)
         except Exception as error:
             print('History recovery failed; deployment blocked: ' + diagnostic(error), file=sys.stderr)
             return 1
