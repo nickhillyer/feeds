@@ -243,9 +243,9 @@ class BulletinTests(unittest.TestCase):
 class StatusTests(unittest.TestCase):
     def test_request_summary_and_html_escaping(self):
         entry = status_entry([], ['Bad <source>'], NOW, {'history': 4, 'methow-trails': 2})
-        self.assertEqual(entry['_status']['http_requests_total'], 6)
-        self.assertEqual(entry['_status']['http_requests']['history'], 4)
-        self.assertIn('Total HTTP requests:</strong> 6', entry['content_html'])
+        self.assertEqual(entry['_status']['http_requests_total'], 2)
+        self.assertNotIn('history', entry['_status']['http_requests'])
+        self.assertIn('Total HTTP requests:</strong> 2', entry['content_html'])
         self.assertIn('Bad &lt;source&gt;', entry['content_html'])
 
 
@@ -354,8 +354,8 @@ class CommandTests(unittest.TestCase):
                 validate(status)
                 self.assertEqual(len(status['items']), 2)
                 self.assertEqual(status['items'][0]['_status']['source_errors'], 0)
-                self.assertEqual(status['items'][0]['_status']['http_requests']['history'], 4)
-                self.assertEqual(status['items'][0]['_status']['http_requests_total'], 4)
+                self.assertNotIn('history', status['items'][0]['_status']['http_requests'])
+                self.assertEqual(status['items'][0]['_status']['http_requests_total'], 0)
                 (Path(directory) / (news.SLUG + '.json')).write_text('broken')
                 with patch('sys.argv', ['feeds', '--base-url', base, '--output', directory]), contextlib.redirect_stderr(io.StringIO()):
                     self.assertEqual(main(), 1)
