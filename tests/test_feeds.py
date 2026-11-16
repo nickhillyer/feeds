@@ -288,7 +288,7 @@ class StatusTests(unittest.TestCase):
         self.assertIn('Published items', entry['content_text'])
         self.assertIn('  news: 1', entry['content_text'])
         self.assertIn('  None', entry['content_text'])
-        self.assertEqual(summary, {'source_errors': 0, 'failures': [], 'feed_items': {'news': 1}, 'http_requests': {}, 'http_requests_total': 0})
+        self.assertEqual(summary, {'source_errors': 0, 'failures': [], 'feed_items': {'news': 1}, 'http_requests': {news.SLUG: 0, trails.SLUG: 0, bulletin.SLUG: 0}, 'http_requests_total': 0})
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
