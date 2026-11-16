@@ -79,6 +79,7 @@ def status_entry(feeds, failures, now, requests=None):
 
 
 def generate_status(history, feeds, failures, now, requests=None):
+    history['icon'] = Status.ICON
     history['items'] = merge(history['items'], [status_entry(feeds, failures, now, requests)], now)
     history['_feeds'] = {'initialized': True, 'last_successful_at': stamp(now)}
     validate(history)
@@ -92,6 +93,11 @@ def error_item(adapter, operation, error, now):
 
 def generate(adapter, feed, now):
     feed['items'] = [item for item in feed['items'] if instant(item['date_published']) >= now - RETENTION]
+    if adapter is bulletin:
+        for item in feed['items']:
+            if item['id'].startswith('topic:'):
+                item['content_text'] = item['title']
+                item.pop('content_html', None)
     incoming = []
     failures = []
     feed['icon'] = adapter.ICON
