@@ -1,4 +1,6 @@
 import hashlib
+from contextlib import contextmanager
+from contextvars import ContextVar
 import re
 import time
 import urllib.error
@@ -8,6 +10,27 @@ from html.parser import HTMLParser
 
 UTC = timezone.utc
 RETENTION = timedelta(days=30)
+_REQUEST_COUNTS = ContextVar('request_counts', default=None)
+_REQUEST_SOURCE = ContextVar('request_source', default=None)
+
+
+@contextmanager
+def count_requests(counts):
+    token = _REQUEST_COUNTS.set(counts)
+    try:
+        yield
+    finally:
+        _REQUEST_COUNTS.reset(token)
+
+
+@contextmanager
+def request_source(source):
+    token = _REQUEST_SOURCE.set(source)
+    try:
+        yield
+    finally:
+        _REQUEST_SOURCE.reset(token)
+
 
 
 class SourceChallenge(ValueError):
@@ -29,6 +52,10 @@ def fetch(url, with_headers=False):
     for attempt in range(3):
         try:
             request = urllib.request.Request(url, headers={'User-Agent': 'Feeds/1.0 (+https://github.com/nickhillyer/feeds)', 'Cache-Control': 'no-cache'})
+            counts = _REQUEST_COUNTS.get()
+            if counts is not None:
+                source = _REQUEST_SOURCE.get() or 'other'
+                counts[source] = counts.get(source, 0) + 1
             with urllib.request.urlopen(request, timeout=30) as response:
                 data = response.read()
                 if 'html' in response.headers.get('Content-Type', '') and b'/.well-known/sgcaptcha/' in data[:8192].lower():
