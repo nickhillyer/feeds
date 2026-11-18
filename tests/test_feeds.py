@@ -247,7 +247,18 @@ class StatusTests(unittest.TestCase):
         self.assertNotIn('history', entry['_status']['http_requests'])
         self.assertIn('Total HTTP requests:</strong> 2', entry['content_html'])
         self.assertIn('Bad &lt;source&gt;', entry['content_html'])
+        self.assertIn('<h3>Newly discovered items</h3>', entry['content_html'])
 
+
+    def test_new_items_are_shown_in_text_html_and_metadata(self):
+        feeds = [(news.SLUG, history([item('news:1'), item('news:2')]))]
+        entry = status_entry(feeds, [], NOW, new_items={news.SLUG: 1})
+        self.assertEqual(entry['_status']['new_items'], {news.SLUG: 1})
+        self.assertIn('Newly discovered items', entry['content_text'])
+        self.assertIn('  Methow Valley News: 1', entry['content_text'])
+        self.assertIn('<h3>Newly discovered items</h3>', entry['content_html'])
+        self.assertIn('<li>Methow Valley News: 1</li>', entry['content_html'])
+        self.assertEqual(entry['_status']['feed_items'][news.SLUG], 2)
 
     def test_one_entry_per_run_and_thirty_day_retention(self):
         old = item('status:old', 'Old run', NOW - timedelta(days=31))
@@ -288,7 +299,7 @@ class StatusTests(unittest.TestCase):
         self.assertIn('Published items', entry['content_text'])
         self.assertIn('  news: 1', entry['content_text'])
         self.assertIn('  None', entry['content_text'])
-        self.assertEqual(summary, {'source_errors': 0, 'failures': [], 'feed_items': {'news': 1}, 'http_requests': {news.SLUG: 0, trails.SLUG: 0, bulletin.SLUG: 0}, 'http_requests_total': 0})
+        self.assertEqual(summary, {'new_items': {'news': 0}, 'source_errors': 0, 'failures': [], 'feed_items': {'news': 1}, 'http_requests': {news.SLUG: 0, trails.SLUG: 0, bulletin.SLUG: 0}, 'http_requests_total': 0})
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -354,6 +365,8 @@ class CommandTests(unittest.TestCase):
                 validate(status)
                 self.assertEqual(len(status['items']), 2)
                 self.assertEqual(status['items'][0]['_status']['source_errors'], 0)
+                self.assertEqual(status['items'][0]['_status']['new_items'], {adapter.SLUG: 0 for adapter in ADAPTERS})
+                self.assertEqual(status['items'][1]['_status']['new_items'], {adapter.SLUG: 1 for adapter in ADAPTERS})
                 self.assertNotIn('history', status['items'][0]['_status']['http_requests'])
                 self.assertEqual(status['items'][0]['_status']['http_requests_total'], 0)
                 (Path(directory) / (news.SLUG + '.json')).write_text('broken')
