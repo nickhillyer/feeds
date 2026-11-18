@@ -60,17 +60,22 @@ def load_status(base, reset=False):
     return feed
 
 
-def status_entry(feeds, failures, now, requests=None):
+def status_entry(feeds, failures, now, requests=None, new_items=None):
     counts = {slug: sum(not item['id'].startswith('error:') for item in feed['items']) for slug, feed in feeds}
     requests = {slug: (requests or {}).get(slug, 0) for slug in (news.SLUG, trails.SLUG, bulletin.SLUG)}
-    summary = {'source_errors': len(failures), 'failures': failures, 'feed_items': counts, 'http_requests': requests, 'http_requests_total': sum(requests.values())}
+    new_items = {slug: (new_items or {}).get(slug, 0) for slug, _ in feeds}
+    summary = {'new_items': new_items, 'source_errors': len(failures), 'failures': failures, 'feed_items': counts, 'http_requests': requests, 'http_requests_total': sum(requests.values())}
     labels = {news.SLUG: 'Methow Valley News', trails.SLUG: 'Methow Trails', bulletin.SLUG: 'Methow Valley Bulletin Board'}
     lines = ['Source errors: ' + str(len(failures)), '', 'Published items']
     lines.extend('  ' + labels.get(slug, slug) + ': ' + str(count) for slug, count in counts.items())
+    lines.extend(['', 'Newly discovered items'])
+    lines.extend('  ' + labels.get(slug, slug) + ': ' + str(count) for slug, count in new_items.items())
     lines.extend(['', 'Failures'])
     lines.extend('  - ' + failure for failure in failures) if failures else lines.append('  None')
     html = ['<h2>Feed update summary</h2>', '<p><strong>Source errors:</strong> ' + str(len(failures)) + '</p>', '<h3>Published items</h3>', '<ul>']
     html.extend('<li>' + escape(labels.get(slug, slug)) + ': ' + str(count) + '</li>' for slug, count in counts.items())
+    html.extend(['</ul>', '<h3>Newly discovered items</h3>', '<ul>'])
+    html.extend('<li>' + escape(labels.get(slug, slug)) + ': ' + str(count) + '</li>' for slug, count in new_items.items())
     html.extend(['</ul>', '<h3>HTTP requests</h3>', '<ul>'])
     html.extend('<li>' + escape(source) + ': ' + str(count) + '</li>' for source, count in requests.items())
     html.extend(['</ul>', '<p><strong>Total HTTP requests:</strong> ' + str(sum(requests.values())) + '</p>', '<h3>Failures</h3>'])
@@ -78,9 +83,9 @@ def status_entry(feeds, failures, now, requests=None):
     return {'id': 'status:' + stamp(now), 'title': 'Feed update: ' + ('OK' if not failures else f'{len(failures)} source error(s)'), 'content_text': '\n'.join(lines), 'content_html': '\n'.join(html), '_status': summary}
 
 
-def generate_status(history, feeds, failures, now, requests=None):
+def generate_status(history, feeds, failures, now, requests=None, new_items=None):
     history['icon'] = Status.ICON
-    history['items'] = merge(history['items'], [status_entry(feeds, failures, now, requests)], now)
+    history['items'] = merge(history['items'], [status_entry(feeds, failures, now, requests, new_items)], now)
     history['_feeds'] = {'initialized': True, 'last_successful_at': stamp(now)}
     validate(history)
     return history
@@ -130,12 +135,15 @@ def main():
             return 1
         feeds = []
         failures = []
+        new_items = {}
         for adapter, history in histories:
+            previous_ids = {item['id'] for item in history['items']}
             with request_source(adapter.SLUG):
                 feed, errors = generate(adapter, history, now)
+            new_items[adapter.SLUG] = sum(item['id'] not in previous_ids and not item['id'].startswith('error:') for item in feed['items'])
             feeds.append((adapter.SLUG, feed))
             failures.extend(adapter.TITLE + ': ' + error for error in errors)
-    feeds.append((Status.SLUG, generate_status(status_history, feeds, failures, now, requests)))
+    feeds.append((Status.SLUG, generate_status(status_history, feeds, failures, now, requests, new_items)))
     args.output.mkdir(parents=True, exist_ok=True)
     for slug, feed in feeds:
         target = args.output / (slug + '.json')
